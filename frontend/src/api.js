@@ -6,6 +6,35 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ok = ({ data, error }) => { if (error) throw error; return data; };
 
+// ---------- Photos ----------
+// Phone photos are often 5-10 MB, so shrink them to `max` pixels before uploading. If the browser
+// can't decode the file (e.g. HEIC in some browsers), the original is uploaded instead.
+const shrink = async (file, max) => {
+  try {
+    const img = await createImageBitmap(file);
+    const s = Math.min(1, max / Math.max(img.width, img.height));
+    const c = Object.assign(document.createElement("canvas"), { width: Math.round(img.width * s), height: Math.round(img.height * s) });
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob((b) => res(b || file), "image/jpeg", 0.85));
+  } catch { return file; }
+};
+const upload = async (bucket, folder, file, max) => {
+  const blob = await shrink(file, max);
+  const ext = blob.type === "image/jpeg" ? "jpg" : (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${folder}/${crypto.randomUUID()}.${ext}`;
+  ok(await sb.storage.from(bucket).upload(path, blob, { contentType: blob.type || file.type }));
+  return path;
+};
+// All buckets are private: rows store a path, and the app shows a link that expires after an hour.
+const signed = async (bucket, rows, key = "photo_path", out = "photo_url") => {
+  const paths = rows.map((r) => r?.[key]).filter(Boolean);
+  if (!paths.length) return rows;
+  const urls = ok(await sb.storage.from(bucket).createSignedUrls(paths, 3600));
+  const by = Object.fromEntries(urls.map((u) => [u.path, u.signedUrl]));
+  rows.forEach((r) => r && (r[out] = r[key] ? by[r[key]] ?? null : null));
+  return rows;
+};
+
 // Auth + profile. The name rides along in user metadata so the profile row can be created
 // on first sign-in (with email confirmation on, sign-up returns no session to write it with).
 export const signUp = (email, password, name) =>
@@ -18,6 +47,14 @@ export const ensureProfile = async (user) => {
   const p = ok(await sb.from("profiles").select("*").eq("id", user.id).maybeSingle());
   return p ?? saveProfile({ id: user.id, name: user.user_metadata?.name || user.email.split("@")[0] });
 };
+// Profile pictures: avatars/<user_id>/<file>. Adds avatar_src (a viewable link) to each profile.
+export const withAvatars = (...profiles) => signed("avatars", profiles, "avatar_url", "avatar_src");
+export const setAvatar = async (profile, file) => {
+  const path = await upload("avatars", profile.id, file, 512);
+  const p = ok(await sb.from("profiles").update({ avatar_url: path }).eq("id", profile.id).select().single());
+  if (profile.avatar_url) await sb.storage.from("avatars").remove([profile.avatar_url]); // old one; fine if it fails
+  return (await withAvatars(p))[0];
+};
 
 // Pairing
 export const createInvite = async () => ok(await sb.rpc("create_invite"));
@@ -27,7 +64,7 @@ export const getCouple = async (userId) => {
   const rows = ok(await sb.from("couple_members").select("couple_id, user_id"));
   if (!rows.length) return null;
   const partnerId = rows.find((r) => r.user_id !== userId)?.user_id;
-  const partner = partnerId ? ok(await sb.from("profiles").select("id, name").eq("id", partnerId).maybeSingle()) : null;
+  const partner = partnerId ? ok(await sb.from("profiles").select("id, name, avatar_url").eq("id", partnerId).maybeSingle()) : null;
   const couple = ok(await sb.from("couples").select("started_on").eq("id", rows[0].couple_id).single());
   return { coupleId: rows[0].couple_id, partner, startedOn: couple.started_on };
 };
@@ -66,22 +103,10 @@ export const recordGame = async (coupleId, game, points) =>
 
 // Memories. Photos go in the private "memories" bucket under <couple_id>/, and are shown through
 // short-lived signed links (see 003_together_and_photos.sql).
-export const listMemories = async () => {
-  const rows = ok(await sb.from("memories").select("*").order("occurred_on", { ascending: false }));
-  const paths = rows.map((m) => m.photo_path).filter(Boolean);
-  if (paths.length) {
-    const urls = ok(await sb.storage.from("memories").createSignedUrls(paths, 3600));
-    const byPath = Object.fromEntries(urls.map((u) => [u.path, u.signedUrl]));
-    rows.forEach((m) => (m.photo_url = byPath[m.photo_path] ?? null));
-  }
-  return rows;
-};
+export const listMemories = async () =>
+  signed("memories", ok(await sb.from("memories").select("*").order("occurred_on", { ascending: false })));
 export const addMemory = async (coupleId, userId, title, occurredOn, file) => {
-  let photo_path = null;
-  if (file) {
-    photo_path = `${coupleId}/${crypto.randomUUID()}.${(file.name.split(".").pop() || "jpg").toLowerCase()}`;
-    ok(await sb.storage.from("memories").upload(photo_path, file, { contentType: file.type }));
-  }
+  const photo_path = file ? await upload("memories", coupleId, file, 1600) : null;
   return ok(await sb.from("memories").insert({ couple_id: coupleId, author_id: userId, title, occurred_on: occurredOn, photo_path }));
 };
 export const deleteMemory = async (m) => {
@@ -89,14 +114,17 @@ export const deleteMemory = async (m) => {
   if (m.photo_path) ok(await sb.storage.from("memories").remove([m.photo_path]));
 };
 
-// Capsules (contents are locked server-side until unlock_at)
-export const createCapsule = async (coupleId, userId, title, unlockAt, firstNote) => {
+// Capsules (contents are locked server-side until unlock_at). Photos: capsules/<couple_id>/<capsule_id>/<file>,
+// which storage also refuses to show before unlock (see 005_capsule_photos_and_avatars.sql).
+export const createCapsule = async (coupleId, userId, title, unlockAt, firstNote, file) => {
   const c = ok(await sb.from("capsules").insert({ couple_id: coupleId, created_by: userId, title, unlock_at: unlockAt }).select().single());
-  if (firstNote) ok(await sb.from("capsule_items").insert({ capsule_id: c.id, author_id: userId, body: firstNote }));
+  if (firstNote || file) await addCapsuleNote(coupleId, c.id, userId, firstNote, file);
   return c;
 };
 export const listCapsules = async () => ok(await sb.from("capsules").select("*").order("unlock_at"));
-export const addCapsuleNote = async (capsuleId, userId, body) =>
-  ok(await sb.from("capsule_items").insert({ capsule_id: capsuleId, author_id: userId, body })); // refused once unlocked
-export const openCapsule = async (capsuleId) =>
-  ok(await sb.from("capsule_items").select("*").eq("capsule_id", capsuleId)); // empty until unlock_at passes
+export const addCapsuleNote = async (coupleId, capsuleId, userId, body, file) => { // refused once unlocked
+  const photo_path = file ? await upload("capsules", `${coupleId}/${capsuleId}`, file, 1600) : null;
+  return ok(await sb.from("capsule_items").insert({ capsule_id: capsuleId, author_id: userId, body: body || null, photo_path }));
+};
+export const openCapsule = async (capsuleId) => // empty until unlock_at passes
+  signed("capsules", ok(await sb.from("capsule_items").select("*").eq("capsule_id", capsuleId).order("created_at")));
