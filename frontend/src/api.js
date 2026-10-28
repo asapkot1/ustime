@@ -47,6 +47,8 @@ export const ensureProfile = async (user) => {
   const p = ok(await sb.from("profiles").select("*").eq("id", user.id).maybeSingle());
   return p ?? saveProfile({ id: user.id, name: user.user_metadata?.name || user.email.split("@")[0] });
 };
+// Partial update (upsert would need every not-null column, like name).
+export const updateProfile = async (id, fields) => ok(await sb.from("profiles").update(fields).eq("id", id).select().single());
 // Profile pictures: avatars/<user_id>/<file>. Adds avatar_src (a viewable link) to each profile.
 export const withAvatars = (...profiles) => signed("avatars", profiles, "avatar_url", "avatar_src");
 export const setAvatar = async (profile, file) => {
@@ -64,7 +66,7 @@ export const getCouple = async (userId) => {
   const rows = ok(await sb.from("couple_members").select("couple_id, user_id"));
   if (!rows.length) return null;
   const partnerId = rows.find((r) => r.user_id !== userId)?.user_id;
-  const partner = partnerId ? ok(await sb.from("profiles").select("id, name, avatar_url").eq("id", partnerId).maybeSingle()) : null;
+  const partner = partnerId ? ok(await sb.from("profiles").select("id, name, avatar_url, activity_prefs, budget_pref").eq("id", partnerId).maybeSingle()) : null;
   const couple = ok(await sb.from("couples").select("started_on").eq("id", rows[0].couple_id).single());
   return { coupleId: rows[0].couple_id, partner, startedOn: couple.started_on };
 };

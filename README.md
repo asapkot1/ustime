@@ -12,7 +12,7 @@ supabase/seed_ontario.sql    More places: Peel, Toronto + GTA, Guelph, Waterloo 
 
 ## Backend setup (Supabase)
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`, then `supabase/migrations/002_pairing_fixes.sql`, then `supabase/seed_ontario.sql`, then `supabase/migrations/003_together_and_photos.sql`, then `supabase/migrations/004_place_photos_and_pets.sql`, then `supabase/migrations/005_capsule_photos_and_avatars.sql`.
+2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`, then `supabase/migrations/002_pairing_fixes.sql`, then `supabase/seed_ontario.sql`, then `supabase/migrations/003_together_and_photos.sql`, then `supabase/migrations/004_place_photos_and_pets.sql`, then `supabase/migrations/005_capsule_photos_and_avatars.sql`, then `supabase/migrations/006_interest_quiz.sql`.
 3. Storage: the migrations create three private buckets: `memories` (003), `capsules` and `avatars` (005), each limited to the couple. Capsule photos can't be viewed until the capsule unlocks.
 4. Settings > API Keys: copy the project URL and **publishable** (anon) key into `frontend/src/config.js`. Never commit the secret / service_role key.
 
