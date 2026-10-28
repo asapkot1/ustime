@@ -28,8 +28,11 @@ export const getCouple = async (userId) => {
   if (!rows.length) return null;
   const partnerId = rows.find((r) => r.user_id !== userId)?.user_id;
   const partner = partnerId ? ok(await sb.from("profiles").select("id, name").eq("id", partnerId).maybeSingle()) : null;
-  return { coupleId: rows[0].couple_id, partner };
+  const couple = ok(await sb.from("couples").select("started_on").eq("id", rows[0].couple_id).single());
+  return { coupleId: rows[0].couple_id, partner, startedOn: couple.started_on };
 };
+export const setStartedOn = async (coupleId, date) =>
+  ok(await sb.from("couples").update({ started_on: date }).eq("id", coupleId));
 
 // Explore: radius search (powers the distance slider)
 export const placesNearby = async ({ lat, lng, radiusKm, maxTier = 3, category = null }) =>
@@ -61,8 +64,30 @@ export const addXp = async (coupleId, xp) => {
 export const recordGame = async (coupleId, game, points) =>
   ok(await sb.from("game_sessions").insert({ couple_id: coupleId, game, points }));
 
-// Memories
-export const listMemories = async () => ok(await sb.from("memories").select("*").order("occurred_on", { ascending: false }));
+// Memories. Photos go in the private "memories" bucket under <couple_id>/, and are shown through
+// short-lived signed links (see 003_together_and_photos.sql).
+export const listMemories = async () => {
+  const rows = ok(await sb.from("memories").select("*").order("occurred_on", { ascending: false }));
+  const paths = rows.map((m) => m.photo_path).filter(Boolean);
+  if (paths.length) {
+    const urls = ok(await sb.storage.from("memories").createSignedUrls(paths, 3600));
+    const byPath = Object.fromEntries(urls.map((u) => [u.path, u.signedUrl]));
+    rows.forEach((m) => (m.photo_url = byPath[m.photo_path] ?? null));
+  }
+  return rows;
+};
+export const addMemory = async (coupleId, userId, title, occurredOn, file) => {
+  let photo_path = null;
+  if (file) {
+    photo_path = `${coupleId}/${crypto.randomUUID()}.${(file.name.split(".").pop() || "jpg").toLowerCase()}`;
+    ok(await sb.storage.from("memories").upload(photo_path, file, { contentType: file.type }));
+  }
+  return ok(await sb.from("memories").insert({ couple_id: coupleId, author_id: userId, title, occurred_on: occurredOn, photo_path }));
+};
+export const deleteMemory = async (m) => {
+  ok(await sb.from("memories").delete().eq("id", m.id));
+  if (m.photo_path) ok(await sb.storage.from("memories").remove([m.photo_path]));
+};
 
 // Capsules (contents are locked server-side until unlock_at)
 export const createCapsule = async (coupleId, userId, title, unlockAt, firstNote) => {
@@ -71,5 +96,7 @@ export const createCapsule = async (coupleId, userId, title, unlockAt, firstNote
   return c;
 };
 export const listCapsules = async () => ok(await sb.from("capsules").select("*").order("unlock_at"));
+export const addCapsuleNote = async (capsuleId, userId, body) =>
+  ok(await sb.from("capsule_items").insert({ capsule_id: capsuleId, author_id: userId, body })); // refused once unlocked
 export const openCapsule = async (capsuleId) =>
   ok(await sb.from("capsule_items").select("*").eq("capsule_id", capsuleId)); // empty until unlock_at passes
