@@ -6,12 +6,13 @@ A couples app: date discovery with a radius filter, shared wishlist and matches,
 frontend/index.html          Clickable prototype (simulated data), open it in a browser
 frontend/src/api.js          Supabase data layer (not yet wired into the UI)
 supabase/migrations/001_schema.sql   Tables, row level security, radius search, invites, capsule locking
-supabase/seed.sql            Starter places (London, ON test data, replace with Brampton / Peel / Toronto)
+supabase/seed.sql            Starter places, London, ON
+supabase/seed_ontario.sql    More places: Peel, Toronto + GTA, Guelph, Waterloo Region
 ```
 
 ## Backend setup (Supabase)
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`, then `supabase/migrations/002_pairing_fixes.sql`.
+2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`, then `supabase/migrations/002_pairing_fixes.sql`, then `supabase/seed_ontario.sql`.
 3. Storage: create private buckets `avatars` and `memories`, and a policy limiting access to couple members.
 4. Settings > API Keys: copy the project URL and **publishable** (anon) key into `frontend/src/config.js`. Never commit the secret / service_role key.
 
