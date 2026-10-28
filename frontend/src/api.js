@@ -44,6 +44,7 @@ export const saveToWishlist = async (coupleId, placeId, userId) =>
 export const removeFromWishlist = async (placeId, userId) =>
   ok(await sb.from("wishlist").delete().match({ place_id: placeId, user_id: userId }));
 export const getMatches = async () => ok(await sb.from("wishlist_matches").select("place_id"));
+export const listWishlist = async () => ok(await sb.from("wishlist").select("place_id, user_id"));
 export const onWishlistChange = (coupleId, cb) =>
   sb.channel("wishlist-" + coupleId)
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "wishlist", filter: `couple_id=eq.${coupleId}` }, cb)
@@ -56,11 +57,10 @@ export const listCheckIns = async () =>
   ok(await sb.from("check_ins").select("*").order("created_at", { ascending: false }).limit(60));
 
 // Pet + games
-export const getPet = async () => ok(await sb.from("pets").select("*").single());
-export const addXp = async (coupleId, xp) => {
-  const pet = await getPet();
-  return ok(await sb.from("pets").update({ xp: pet.xp + xp }).eq("couple_id", coupleId));
-};
+export const getPet = async () => ok(await sb.from("pets").select("*").maybeSingle());
+export const setPet = async (coupleId, fields) =>
+  ok(await sb.from("pets").update(fields).eq("couple_id", coupleId).select().single());
+export const feedPet = (coupleId, pet) => setPet(coupleId, { xp: pet.xp + 10, happiness: Math.min(100, pet.happiness + 5) });
 export const recordGame = async (coupleId, game, points) =>
   ok(await sb.from("game_sessions").insert({ couple_id: coupleId, game, points }));
 
