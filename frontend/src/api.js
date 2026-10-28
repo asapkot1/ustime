@@ -1,0 +1,59 @@
+// Data layer for UsTime. Each function maps to a table or SQL function in supabase/migrations/001_schema.sql.
+// Install:  npm i @supabase/supabase-js   (or load it from a CDN in a plain web page)
+import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+
+export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const ok = ({ data, error }) => { if (error) throw error; return data; };
+
+// Auth + profile
+export const signUp = (email, password) => sb.auth.signUp({ email, password }).then(ok);
+export const signIn = (email, password) => sb.auth.signInWithPassword({ email, password }).then(ok);
+export const saveProfile = async (p) => ok(await sb.from("profiles").upsert(p).select().single());
+
+// Pairing
+export const createInvite = async () => ok(await sb.rpc("create_invite"));
+export const joinCouple = async (code) => ok(await sb.rpc("join_couple", { invite_code: code }));
+
+// Explore: radius search (powers the distance slider)
+export const placesNearby = async ({ lat, lng, radiusKm, maxTier = 3, category = null }) =>
+  ok(await sb.rpc("places_nearby", { lat, lng, radius_km: radiusKm, max_tier: maxTier, cat: category }));
+
+// Wishlist + "It's a Match!"
+export const saveToWishlist = async (coupleId, placeId, userId) =>
+  ok(await sb.from("wishlist").insert({ couple_id: coupleId, place_id: placeId, user_id: userId }));
+export const removeFromWishlist = async (placeId, userId) =>
+  ok(await sb.from("wishlist").delete().match({ place_id: placeId, user_id: userId }));
+export const getMatches = async () => ok(await sb.from("wishlist_matches").select("place_id"));
+export const onWishlistChange = (coupleId, cb) =>
+  sb.channel("wishlist-" + coupleId)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "wishlist", filter: `couple_id=eq.${coupleId}` }, cb)
+    .subscribe();
+
+// Check-ins (private ones are hidden from your partner by RLS)
+export const addCheckIn = async (coupleId, userId, mood, note, shared = true) =>
+  ok(await sb.from("check_ins").insert({ couple_id: coupleId, user_id: userId, mood, note, shared }));
+export const listCheckIns = async () =>
+  ok(await sb.from("check_ins").select("*").order("created_at", { ascending: false }).limit(60));
+
+// Pet + games
+export const getPet = async () => ok(await sb.from("pets").select("*").single());
+export const addXp = async (coupleId, xp) => {
+  const pet = await getPet();
+  return ok(await sb.from("pets").update({ xp: pet.xp + xp }).eq("couple_id", coupleId));
+};
+export const recordGame = async (coupleId, game, points) =>
+  ok(await sb.from("game_sessions").insert({ couple_id: coupleId, game, points }));
+
+// Memories
+export const listMemories = async () => ok(await sb.from("memories").select("*").order("occurred_on", { ascending: false }));
+
+// Capsules (contents are locked server-side until unlock_at)
+export const createCapsule = async (coupleId, userId, title, unlockAt, firstNote) => {
+  const c = ok(await sb.from("capsules").insert({ couple_id: coupleId, created_by: userId, title, unlock_at: unlockAt }).select().single());
+  if (firstNote) ok(await sb.from("capsule_items").insert({ capsule_id: c.id, author_id: userId, body: firstNote }));
+  return c;
+};
+export const listCapsules = async () => ok(await sb.from("capsules").select("*").order("unlock_at"));
+export const openCapsule = async (capsuleId) =>
+  ok(await sb.from("capsule_items").select("*").eq("capsule_id", capsuleId)); // empty until unlock_at passes
