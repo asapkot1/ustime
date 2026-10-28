@@ -11,9 +11,16 @@ supabase/seed.sql            Starter places (London, ON test data, replace with 
 
 ## Backend setup (Supabase)
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`.
+2. SQL editor: run `supabase/migrations/001_schema.sql`, then `supabase/seed.sql`, then `supabase/migrations/002_pairing_fixes.sql`.
 3. Storage: create private buckets `avatars` and `memories`, and a policy limiting access to couple members.
-4. Settings > API: copy the project URL and **anon** key into `frontend/src/config.js`. Never commit the service_role key.
+4. Settings > API Keys: copy the project URL and **publishable** (anon) key into `frontend/src/config.js`. Never commit the secret / service_role key.
+
+## Run the frontend locally
+The page loads `src/api.js` as a JavaScript module, which browsers block when you double-click the file. Serve it instead:
+```
+python -m http.server 3000 --directory frontend
+```
+Then open http://localhost:3000. Port 3000 matches Supabase's default Site URL, so email confirmation links come back to the app.
 
 ## Status
 - Prototype UI and schema are written. **The schema has not been run against a live Supabase project yet**, so expect small fixes.

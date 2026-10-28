@@ -1,19 +1,35 @@
 // Data layer for UsTime. Each function maps to a table or SQL function in supabase/migrations/001_schema.sql.
-// Install:  npm i @supabase/supabase-js   (or load it from a CDN in a plain web page)
-import { createClient } from "@supabase/supabase-js";
+// Loaded from a CDN so the plain web page needs no build step. Switch to `npm i @supabase/supabase-js` with Expo.
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ok = ({ data, error }) => { if (error) throw error; return data; };
 
-// Auth + profile
-export const signUp = (email, password) => sb.auth.signUp({ email, password }).then(ok);
+// Auth + profile. The name rides along in user metadata so the profile row can be created
+// on first sign-in (with email confirmation on, sign-up returns no session to write it with).
+export const signUp = (email, password, name) =>
+  sb.auth.signUp({ email, password, options: { data: { name }, emailRedirectTo: location.origin + location.pathname } }).then(ok);
 export const signIn = (email, password) => sb.auth.signInWithPassword({ email, password }).then(ok);
+export const signOut = async () => { const { error } = await sb.auth.signOut(); if (error) throw error; };
+export const getUser = async () => (await sb.auth.getSession()).data.session?.user ?? null;
 export const saveProfile = async (p) => ok(await sb.from("profiles").upsert(p).select().single());
+export const ensureProfile = async (user) => {
+  const p = ok(await sb.from("profiles").select("*").eq("id", user.id).maybeSingle());
+  return p ?? saveProfile({ id: user.id, name: user.user_metadata?.name || user.email.split("@")[0] });
+};
 
 // Pairing
 export const createInvite = async () => ok(await sb.rpc("create_invite"));
 export const joinCouple = async (code) => ok(await sb.rpc("join_couple", { invite_code: code }));
+// RLS only returns rows for my own couple, so this lists me and (if joined) my partner.
+export const getCouple = async (userId) => {
+  const rows = ok(await sb.from("couple_members").select("couple_id, user_id"));
+  if (!rows.length) return null;
+  const partnerId = rows.find((r) => r.user_id !== userId)?.user_id;
+  const partner = partnerId ? ok(await sb.from("profiles").select("id, name").eq("id", partnerId).maybeSingle()) : null;
+  return { coupleId: rows[0].couple_id, partner };
+};
 
 // Explore: radius search (powers the distance slider)
 export const placesNearby = async ({ lat, lng, radiusKm, maxTier = 3, category = null }) =>
