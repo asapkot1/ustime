@@ -112,6 +112,13 @@ export const doChallenge = async (coupleId, userId, day, challenge, answer) =>
   ok(await sb.from("challenge_log").upsert({ couple_id: coupleId, user_id: userId, day, challenge, answer: answer || null },
     { onConflict: "user_id,day" }));
 
+// Quick Draw (see 009_quick_draw.sql). drawing_secrets.word comes back null until you're allowed to see it.
+export const listDrawings = async () =>
+  ok(await sb.from("drawings").select("*, drawing_secrets(word)").order("created_at", { ascending: false }).limit(30));
+export const createDrawing = async (strokes, word, hint, shape) =>
+  ok(await sb.rpc("create_drawing", { p_strokes: strokes, p_word: word, p_hint: hint, p_shape: shape }));
+export const guessDrawing = async (id, guess) => ok(await sb.rpc("guess_drawing", { p_id: id, p_guess: guess }));
+
 // Pet + games
 export const getPet = async () => ok(await sb.from("pets").select("*").maybeSingle());
 export const setPet = async (coupleId, fields) =>
