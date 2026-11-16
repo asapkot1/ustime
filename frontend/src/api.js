@@ -73,7 +73,15 @@ export const getCouple = async (userId) => {
 export const setStartedOn = async (coupleId, date) =>
   ok(await sb.from("couples").update({ started_on: date }).eq("id", coupleId));
 
-// Explore: radius search (powers the distance slider)
+// Explore: date ideas (an activity at a place) near a point. month (1-12) hides ideas that aren't running then.
+export const activitiesNearby = async ({ lat, lng, radiusKm, maxTier = 3, month = null }) => {
+  const r = await sb.rpc("activities_nearby", { lat, lng, radius_km: radiusKm, max_tier: maxTier, mon: month });
+  if (r.error?.code !== "PGRST202") return ok(r);
+  // activities_nearby doesn't exist yet (007_activities.sql not run): show places as "Visit <place>" instead.
+  const places = await placesNearby({ lat, lng, radiusKm, maxTier });
+  return places.map((p) => ({ ...p, place_id: p.id, place_name: p.name, title: "Visit", months: null, tip: null }));
+};
+// Places only (no activities). Kept for reference; the app uses activitiesNearby.
 export const placesNearby = async ({ lat, lng, radiusKm, maxTier = 3, category = null }) =>
   ok(await sb.rpc("places_nearby", { lat, lng, radius_km: radiusKm, max_tier: maxTier, cat: category }));
 
