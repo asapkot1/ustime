@@ -104,13 +104,14 @@ const CH=[["a1","ask","😊","What's one thing your partner did recently that ma
 const chById=k=>CH.find(c=>c[0]==k);
 const hashStr=s=>{let h=0;for(const ch of s)h=(h*31+ch.charCodeAt(0))|0;return Math.abs(h)};
 const todayCh=()=>CH[hashStr((S.couple?.coupleId||S.user?.id||"")+iso(new Date()))%CH.length];
-async function loadChallenge(){if(!S.couple)return;try{const[rows,pd]=await Promise.all([api.listChallenges(),api.partnerDone(iso(new Date()))]);Object.assign(S,{chRows:rows,chPartner:pd,chOk:1})}catch{S.chOk=0}}
+async function loadChallenge(){if(!S.couple)return;try{const[rows,pd]=await Promise.all([api.listChallenges(),api.partnerDone(iso(new Date()))]);Object.assign(S,{chRows:rows,chPartner:pd,chOk:1,chErr:""})}catch(e){S.chOk=0;S.chErr=e.message||String(e);console.error("challenge load failed",e)}}
+async function chRetry(){await loadChallenge();render();if(!S.chOk)toast("Still not loading: "+S.chErr)}
 // Streak = days in a row (ending today, or yesterday if today isn't finished yet) where you both did it.
 function chStats(){const by={};(S.chRows||[]).forEach(r=>(by[r.day]=by[r.day]||new Set()).add(r.user_id));const both=d=>by[d]?.size>=2;let streak=0;const d=new Date();if(!both(iso(d)))d.setDate(d.getDate()-1);while(both(iso(d))){streak++;d.setDate(d.getDate()-1)}return{streak,total:Object.keys(by).filter(both).length}}
 function CHC(){const c=todayCh(),td=iso(new Date()),pn=esc(S.mate?.name||"your partner"),ask=c[1]=="ask";
   const box=h=>`<div class="card" style="background:var(--yel);border:0"><div class="eye">${ask?"Question of the day":"Do this today"}</div><p style="font-size:16px;line-height:1.4;font-weight:600;margin:4px 0 12px">${c[2]} ${esc(c[3])}</p>${h}</div>`;
   if(!S.couple)return box(`<p class="mut" style="margin-bottom:10px">Pair with your partner to do challenges together.</p><button class="btn" onclick="pairing()">Pair up</button>`);
-  if(!S.chOk)return box(`<p class="mut">Couldn't load today's challenge. Try again in a bit.</p>`);
+  if(!S.chOk)return box(`<p class="mut" style="margin-bottom:10px">Couldn't load today's challenge.${S.chErr?`<br><span style="font-size:12px">(${esc(S.chErr)})</span>`:""}</p><button class="btn sec" onclick="chRetry()">Try again</button>`);
   const rows=S.chRows.filter(r=>r.day==td),mine=rows.find(r=>r.user_id==S.user.id),theirs=rows.find(r=>r.user_id!=S.user.id),st=chStats();
   const said=r=>ask?esc(r.answer||""):"Done ✓"+(r.answer?" · "+esc(r.answer):"");
   const body=!mine?(S.chPartner?`<p style="font-size:13px;margin-bottom:10px">💌 ${pn} ${ask?"already answered. Share yours to see it!":"already did it!"}</p>`:"")
@@ -232,6 +233,8 @@ setTheme(S.theme,1);$("#nav").style.display="none";$("#v").innerHTML='<div class
 </script>
 <script type="module">
 // api.js talks to Supabase. It's put on window so the onclick handlers above can use it.
-import * as api from "./src/api.js";
+// The ?v= tag makes browsers fetch the api.js that matches this page instead of an older cached copy.
+// Change it whenever api.js changes.
+import * as api from "./src/api.js?v=2026-11-16";
 window.api=api;boot();
 </script></body></html>
