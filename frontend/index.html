@@ -75,7 +75,56 @@ async function saveStart(){const v=$("#sd").value;if(!v)return toast("Pick a dat
 // Everything that belongs to the couple: memories, capsules, wishlist, check-ins, pet.
 async function loadCoupleData(){if(!S.couple){Object.assign(S,{mems:[],caps:[],checks:[],pet:null,saved:new Set(),partner:new Set()});return}
   try{const[m,c,w,k,p]=await Promise.all([api.listMemories(),api.listCapsules(),api.listWishlist(),api.listCheckIns(),api.getPet()]);
-  Object.assign(S,{mems:m,caps:c,checks:k,pet:p,saved:new Set(w.filter(r=>r.user_id==S.user.id).map(r=>r.place_id)),partner:new Set(w.filter(r=>r.user_id!=S.user.id).map(r=>r.place_id))})}catch(e){toast(e.message)}}
+  Object.assign(S,{mems:m,caps:c,checks:k,pet:p,saved:new Set(w.filter(r=>r.user_id==S.user.id).map(r=>r.place_id)),partner:new Set(w.filter(r=>r.user_id!=S.user.id).map(r=>r.place_id))})}catch(e){toast(e.message)}
+  await loadChallenge()}
+// ---------- Couple challenge ----------
+// One challenge a day, the same for both partners (picked from the date + couple id). Each entry is [key, type, emoji, text]:
+// "ask" = answer a question (your partner's answer unlocks once you've answered), "do" = do it, then tick it off.
+// Keys are stored with each answer, so never reuse or renumber them; add new ones at the end.
+const CH=[["a1","ask","😊","What's one thing your partner did recently that made you smile?"],["a2","ask","🛋️","Describe your perfect lazy Sunday together."],
+["a3","ask","🥰","What's a small habit of your partner's that you secretly love?"],["a4","ask","📅","If you could relive one day together, which would it be?"],
+["a5","ask","✨","What's something new you'd like to try together this month?"],["a6","ask","❤️","Finish the sentence: I feel most loved when you…"],
+["a7","ask","🎵","What song reminds you of your partner, and why?"],["a8","ask","🌱","What's your favourite memory from your first month together?"],
+["a9","ask","🙏","Name three things you're grateful for in this relationship."],["a10","ask","🎯","What's one goal you want to reach together this year?"],
+["a11","ask","💪","What do you admire about how your partner handles hard days?"],["a12","ask","🌍","If you could teleport anywhere together tonight, where would you go?"],
+["a13","ask","🍝","What's a meal you'd love to cook together?"],["a14","ask","📚","What's something your partner has taught you?"],
+["a15","ask","🌙","Describe your dream date in one sentence."],["a16","ask","💬","What's a compliment you've never said out loud?"],
+["a17","ask","😂","What's the funniest moment you've had together?"],["a18","ask","🤝","What's one way your partner could make your week easier?"],
+["a19","ask","🎁","What's a tradition you'd like to start together?"],["a20","ask","🔮","Where do you see the two of you a year from now?"],
+["d1","do","🎙️","Send your partner a voice note about why you appreciate them."],["d2","do","❓","Ask your partner three questions you've never asked before."],
+["d3","do","🚶","Take a 15-minute walk together with no phones."],["d4","do","🍫","Surprise your partner with their favourite snack."],
+["d5","do","💆","Give your partner a 5-minute shoulder massage."],["d6","do","🎧","Make your partner a 5-song playlist that reminds you of them."],
+["d7","do","📝","Hide a sweet note somewhere your partner will find it."],["d8","do","📸","Take a silly selfie together and add it to Memories."],
+["d9","do","📵","Have a 10-minute no-screens chat before bed."],["d10","do","☕","Try a cafe or snack spot neither of you has been to."],
+["d11","do","🧭","Plan your next date together using the Explore tab."],["d12","do","🗣️","Compliment your partner in front of someone else."],
+["d13","do","🌅","Watch a sunset or sunrise together."],["d14","do","🧺","Do one chore your partner usually does."],
+["d15","do","🎓","Teach each other something you're good at for 10 minutes."],["d16","do","🤲","Hold hands for an entire walk."],
+["d17","do","💡","Write down three date ideas each, then swap lists."],["d18","do","💃","Dance to one song together in the kitchen."],
+["d19","do","📞","Call each other for 10 minutes instead of texting."],["d20","do","🍳","Make breakfast for your partner."]];
+const chById=k=>CH.find(c=>c[0]==k);
+const hashStr=s=>{let h=0;for(const ch of s)h=(h*31+ch.charCodeAt(0))|0;return Math.abs(h)};
+const todayCh=()=>CH[hashStr((S.couple?.coupleId||S.user?.id||"")+iso(new Date()))%CH.length];
+async function loadChallenge(){if(!S.couple)return;try{const[rows,pd]=await Promise.all([api.listChallenges(),api.partnerDone(iso(new Date()))]);Object.assign(S,{chRows:rows,chPartner:pd,chOk:1})}catch{S.chOk=0}}
+// Streak = days in a row (ending today, or yesterday if today isn't finished yet) where you both did it.
+function chStats(){const by={};(S.chRows||[]).forEach(r=>(by[r.day]=by[r.day]||new Set()).add(r.user_id));const both=d=>by[d]?.size>=2;let streak=0;const d=new Date();if(!both(iso(d)))d.setDate(d.getDate()-1);while(both(iso(d))){streak++;d.setDate(d.getDate()-1)}return{streak,total:Object.keys(by).filter(both).length}}
+function CHC(){const c=todayCh(),td=iso(new Date()),pn=esc(S.mate?.name||"your partner"),ask=c[1]=="ask";
+  const box=h=>`<div class="card" style="background:var(--yel);border:0"><div class="eye">${ask?"Question of the day":"Do this today"}</div><p style="font-size:16px;line-height:1.4;font-weight:600;margin:4px 0 12px">${c[2]} ${esc(c[3])}</p>${h}</div>`;
+  if(!S.couple)return box(`<p class="mut" style="margin-bottom:10px">Pair with your partner to do challenges together.</p><button class="btn" onclick="pairing()">Pair up</button>`);
+  if(!S.chOk)return box(`<p class="mut">Couldn't load today's challenge. Try again in a bit.</p>`);
+  const rows=S.chRows.filter(r=>r.day==td),mine=rows.find(r=>r.user_id==S.user.id),theirs=rows.find(r=>r.user_id!=S.user.id),st=chStats();
+  const said=r=>ask?esc(r.answer||""):"Done ✓"+(r.answer?" · "+esc(r.answer):"");
+  const body=!mine?(S.chPartner?`<p style="font-size:13px;margin-bottom:10px">💌 ${pn} ${ask?"already answered. Share yours to see it!":"already did it!"}</p>`:"")
+      +(ask?`<textarea id="cha" maxlength="500" placeholder="Your answer…" oninput="S.chDraft=this.value" style="${TA}">${esc(S.chDraft||"")}</textarea><button class="btn" id="chb" onclick="chDo()">Share my answer</button>`
+           :`<input id="cha" maxlength="200" placeholder="How did it go? (optional)" oninput="S.chDraft=this.value" value="${esc(S.chDraft||"")}" style="${FS}"><button class="btn" id="chb" onclick="chDo()">I did it ✓</button>`)
+    :`<div class="card" style="margin-bottom:8px;padding:12px"><div class="mut" style="font-size:12px">You</div>${said(mine)}</div>`
+      +(theirs?`<div class="card" style="padding:12px"><div class="mut" style="font-size:12px">${pn}</div>${said(theirs)}</div>`:`<p class="mut">Waiting for ${pn}. Their ${ask?"answer":"tick"} shows up here.</p>`);
+  return box(body+`<div class="row sp mut" style="margin-top:12px;font-size:12px"><span>🔥 ${st.streak}-day streak · ${st.total} done together</span><a style="cursor:pointer;color:var(--pd);font-weight:600" onclick="chHistory()">Past challenges</a></div>`)}
+async function chDo(){const c=todayCh(),v=($("#cha")?.value||"").trim(),b=$("#chb");if(c[1]=="ask"&&!v)return toast("Write your answer first");busy(b,"Saving…");
+  try{await api.doChallenge(S.couple.coupleId,S.user.id,iso(new Date()),c[0],v);S.chDraft="";await loadChallenge();
+    if(S.pet)try{S.pet=await api.setPet(S.couple.coupleId,{xp:S.pet.xp+10})}catch{} // completing a challenge feeds the pet
+    const both=S.chRows.filter(r=>r.day==iso(new Date())).length>=2;toast(both?"You both did today's challenge! 🎉 +10 XP":"Done! +10 XP"+(S.mate?". Now it's "+S.mate.name+"'s turn":""));render()}catch(e){toast(e.message);busy(b)}}
+function chHistory(){const by={};(S.chRows||[]).forEach(r=>(by[r.day]=by[r.day]||[]).push(r));const days=Object.keys(by).sort().reverse();
+  sheet(`<div class="eye">Past challenges</div><h1 style="font-size:22px;margin-bottom:14px">Your answers</h1><div style="max-height:60vh;overflow-y:auto">${days.map(d=>{const c=chById(by[d][0].challenge);return `<div class="card" style="margin-bottom:10px"><div class="mut" style="font-size:12px">${fd(day(d))}</div><b style="display:block;margin:4px 0 6px">${c?c[2]+" "+esc(c[3]):"A past challenge"}</b>${by[d].map(r=>`<div style="font-size:14px;margin-top:4px"><span class="mut">${r.user_id==S.user.id?"You":esc(S.mate?.name||"Partner")}:</span> ${esc(r.answer||"Done ✓")}</div>`).join("")}</div>`}).join("")||'<div class="empty">Nothing yet. Start with today\'s challenge!</div>'}</div><button class="btn" style="margin-top:10px" onclick="this.closest('.sheet').remove()">Close</button>`)}
 const TA="width:100%;height:90px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:12px;font-size:14px;margin-bottom:10px";
 const who=id=>id==S.user?.id?"you":esc(S.mate?.name||"your partner");
 // Photo picker + upload helpers shared by memories, capsules and profile pictures. api.js shrinks photos before upload.
@@ -110,7 +159,7 @@ const V={
 home:()=>`<p class="mut">Good ${["Morning","Afternoon","Evening"][new Date().getHours()<12?0:new Date().getHours()<18?1:2]}</p><div class="row" style="gap:12px;margin-top:6px"><div class="row" style="gap:0;cursor:pointer" title="Change your photo in Settings" onclick="S.sub='settings';go('profile')">${av(S.me)}${S.mate?`<span style="margin-left:-12px;display:flex">${av(S.mate)}</span>`:""}</div><h1>${S.mate?esc(S.me?.name)+" & "+esc(S.mate.name):"Hi, "+esc(S.me?.name)} ❤️</h1></div><div class="stats" style="grid-template-columns:repeat(3,1fr)"><div><b>${days()??"–"}</b><span>Days together</span></div><div><b>${S.mems.length}</b><span>Memories</span></div><div style="background:var(--yel)"><b>${S.caps.length}</b><span>Capsules</span></div></div>${S.couple&&!S.couple.startedOn?`<div class="card" style="margin-top:12px"><b>When did you two get together?</b><p class="mut" style="margin:4px 0 12px">We'll count your days together. You can change it later in Settings.</p><input id="sd" type="date" max="${iso(new Date())}" style="${FS}"><button class="btn" onclick="saveStart()">Save date</button></div>`:''}
 <div class="card" style="margin-top:16px;background:linear-gradient(135deg,var(--t),var(--pink));border:0"><div class="eye">Tonight</div><h1 style="font-size:22px">Plan Your Next Date</h1><p class="mut" style="margin:6px 0 14px">Fresh ideas near ${CITIES.some(c=>c[0]==S.here.label)?esc(S.here.label):"you"}</p><button class="btn" onclick="go('explore')">Explore Date Ideas</button></div>${S.mate?'':`<div class="card" style="margin-top:12px"><b>Invite your partner</b><p class="mut" style="margin:4px 0 12px">Pair up to share a wishlist and see your matches.</p><button class="btn sec" onclick="pairing()">Pair with your partner</button></div>`}
 <h2>Recommended for ${S.mate?"You Two":"You"}</h2><div class="scroll">${perPlace(D).slice(0,6).map(d=>card(d)).join("")}</div>
-<h2>Today's Couple Challenge</h2><div class="card" style="background:var(--yel);border:0"><p style="font-size:15px;line-height:1.4;margin-bottom:12px">Ask your partner three questions you've never asked before.</p><button class="btn" onclick="toast('Challenge started. Have fun 💬')">Start Challenge</button></div>`,
+<h2>Today's Couple Challenge</h2>${CHC()}`,
 explore:()=>{const cats=["All","Romantic","Creative","Outdoors","Classes","Food & Drinks","Adventurous","Relaxing"],buds=["Any","Free","Under $25","$25–$50","$50+"];const bm={Free:0,"Under $25":1,"$25–$50":2,"$50+":3};window.BM=bm;
 return `<div class="eye">Date discovery</div><h1>Find Your Perfect Date.</h1><div class="card" style="margin:16px 0 4px"><div class="row sp"><b>Distance</b><span id="rl" style="color:var(--p);font-weight:600">${S.r} km</span></div><input type="range" min="1" max="50" value="${S.r}" style="width:100%;accent-color:var(--p);margin:10px 0 4px" oninput="rad(this.value)"><div class="row sp mut"><select aria-label="Search from" onchange="pickCity(this.value)" style="border:0;background:none;color:var(--mut);font-size:13px;padding:0;cursor:pointer">${CITIES.some(c=>c[0]==S.here.label)?'':`<option selected disabled>📍 ${esc(S.here.label)}</option>`}${CITIES.map((c,i)=>`<option value="${i}" ${S.here.label==c[0]?'selected':''}>📍 ${c[0]}</option>`).join("")}</select><span style="cursor:pointer;color:var(--p)" onclick="useLoc()">Use my location</span></div></div><div style="margin:16px 0 4px">${buds.map(b=>`<span class="chip ${S.bud==b?'on':''}" onclick="S.bud='${b}';render()">${b}</span>`).join("")}</div><div>${cats.map(b=>`<span class="chip ${S.cat==b?'on':''}" onclick="S.cat='${b}';render()">${b}</span>`).join("")}</div><div id="lst" style="margin-top:8px;display:grid;gap:12px">${LST()}</div>`},
 games:()=>{const G=[["💞","How Well Do You Know Me?","5 min"],["🤔","Would You Rather?","10 min"],["🔤","Heads Up!","8 min"],["🧩","Make a Word","6 min"],["💧","Fill the Water Cup","3 min"],["🏆","Couple Trivia","10 min"]];
@@ -145,7 +194,7 @@ async function loadMe(){const u=await api.getUser();if(!u)return false;S.user=u;
   return true}
 async function boot(){try{if(!await loadMe())return welcome();if(!S.me.activity_prefs?.length&&!S.skipQuiz)return quiz();S.couple?enterApp():pairing()}catch(e){toast(e.message);welcome()}}
 async function enterApp(fresh){if(fresh)try{await loadMe()}catch(e){toast(e.message)}$("#nav").style.display="";go("home");loadPlaces();loadCoupleData().then(()=>{if(["home","memories","profile","explore"].includes(S.tab)&&$("#nav").style.display!="none")render()})}
-async function logout(){try{await api.signOut()}catch(e){toast(e.message)}Object.assign(S,{user:null,me:null,couple:null,mate:null,tab:"home",homeSet:0,skipQuiz:0,mems:[],caps:[],checks:[],pet:null,saved:new Set(),partner:new Set()});D.length=0;welcome()}
+async function logout(){try{await api.signOut()}catch(e){toast(e.message)}Object.assign(S,{user:null,me:null,couple:null,mate:null,tab:"home",homeSet:0,skipQuiz:0,mems:[],caps:[],checks:[],pet:null,saved:new Set(),partner:new Set(),chRows:[],chPartner:false,chOk:0,chDraft:""});D.length=0;welcome()}
 // ---------- Interest quiz + date match ----------
 // Answers are saved on the profile: activity_prefs, budget_pref (highest price tier), travel_km, home_lat/lng/label.
 const QCATS=["Outdoors","Creative","Food & Drinks","Adventurous","Relaxing","Classes"],BUDS=["Free","Under $25","$25–$50","$50+"],KMS=[5,15,30,50];

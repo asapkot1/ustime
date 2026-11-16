@@ -103,6 +103,15 @@ export const addCheckIn = async (coupleId, userId, mood, note, shared = true) =>
 export const listCheckIns = async () =>
   ok(await sb.from("check_ins").select("*").order("created_at", { ascending: false }).limit(60));
 
+// Daily couple challenges (see 008_couple_challenges.sql). Your partner's row for a day is only
+// returned once you've done that day too; partner_done tells you they finished without revealing it.
+export const listChallenges = async () =>
+  ok(await sb.from("challenge_log").select("*").order("day", { ascending: false }).limit(200));
+export const partnerDone = async (day) => ok(await sb.rpc("partner_done", { d: day }));
+export const doChallenge = async (coupleId, userId, day, challenge, answer) =>
+  ok(await sb.from("challenge_log").upsert({ couple_id: coupleId, user_id: userId, day, challenge, answer: answer || null },
+    { onConflict: "user_id,day" }));
+
 // Pet + games
 export const getPet = async () => ok(await sb.from("pets").select("*").maybeSingle());
 export const setPet = async (coupleId, fields) =>
